@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 这是kl3-test-tool软件对应的dtest配置文件，主要功能如下：
+    1.枚举dtest程序，name节点用于展示，要求和对应的dtest固件名称相同
+    2.枚举dtest程序中存在的测试case，name用于展示，要求id和程序中case编号相同
+    3.保存部分界面配置信息
+
+    [note]:这一段注释会导致另存xml文件时错位，不过不影响功能
+-->
+<root_dtest>
+    <debug_interface>true</debug_interface>
+    <port id="0">
+        <com>COM3</com>
+        <baud>115200</baud>
+        <data>8</data>
+        <parity>NONE</parity>
+        <stop>1.0</stop>
+    </port>
+    <port id="1">
+        <com>COM4</com>
+        <baud>9600</baud>
+        <data>8</data>
+        <parity>NONE</parity>
+        <stop>1.0</stop>
+    </port>
+    <port id="2">
+        <com></com>
+        <baud>115200</baud>
+        <data>8</data>
+        <parity>NONE</parity>
+        <stop>1.0</stop>
+    </port>
+    <port id="3">
+        <com></com>
+        <baud>9600</baud>
+        <data>8</data>
+        <parity>NONE</parity>
+        <stop>1.0</stop>
+    </port>
+    <dir id="0">D:\workspace\vsc\python\kl3-test-tool\dtest</dir>
+    <dir id="1"/>
+    <dtest id="000">
+        <name>metering_test</name>
+        <note>用于测试sadc和计量功能，主要包含sadc指标测试和计量功能测试</note>
+        <enable>true</enable>
+        <slave_mode>false</slave_mode>
+        <case id="00">
+            <name>adc_dump</name>
+            <note>打印sadc采样值原始数据</note>
+            <enable>true</enable>
+        </case>
+        <case id="01">
+            <name>metering_test</name>
+            <note>开启计量测试</note>
+            <enable>false</enable>
+        </case>
+    </dtest>
+    <dtest id="001">
+        <name>test_1</name>
+        <note>只是测试功能使用1111111111111</note>
+        <enable>false</enable>
+        <slave_mode>true</slave_mode>
+        <case id="00">
+            <name>case_1</name>
+            <note>测试case 1</note>
+            <enable>false</enable>
+        </case>
+        <case id="01">
+            <name>case_2</name>
+            <note>测试case 2</note>
+            <enable>false</enable>
+        </case>
+    </dtest>
+    <dtest id="002">
+        <name>test_2.bin</name>
+        <note>只是测试功能2222222222</note>
+        <enable>false</enable>
+        <slave_mode>true</slave_mode>
+        <case id="00">
+            <name>case_1</name>
+            <note>测试case 1</note>
+            <enable>false</enable>
+        </case>
+        <case id="01">
+            <name>case_2</name>
+            <note>测试case 2</note>
+            <enable>false</enable>
+        </case>
+    </dtest>
+    <rule id="0">
+        <keyword>START</keyword>
+        <color>#000000</color>
+        <enable>true</enable>
+    </rule>
+    <rule id="1">
+        <keyword>REBOOT</keyword>
+        <color>#000000</color>
+        <enable>true</enable>
+    </rule>
+    <rule id="2">
+        <keyword>RESULT</keyword>
+        <color>#000000</color>
+        <enable>true</enable>
+    </rule>
+</root_dtest>
