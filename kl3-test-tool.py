@@ -6,8 +6,9 @@ import numpy
 import serial
 import time
 import datetime
+from serial.serialutil import Timeout
 import serial.tools.list_ports
-from logging import exception
+from logging import exception, warning
 from xml.dom import minidom
 import xmodem
 from multiprocessing import Process, Queue, freeze_support
@@ -55,9 +56,17 @@ g_fsm_connect = 1
 g_fsm_download = 2
 g_fsm_running = 3
 
+# 消息弹窗对应的消息类型
+g_msg_about = 0
+g_msg_crirical = 1
+g_msg_info = 2
+g_msg_question = 3
+g_msg_warning = 4
+
 #这里的全局变量用于xmodem操作，保存2个下载串口的句柄
 g_port_xmodex = []
 
+#这是是用于给子进程抛消息的队列
 g_list_queue = []
 
 #这里的全局函数也是为了给xmodem使用
@@ -79,14 +88,15 @@ def xmodem_transf_1_callback(total, succeed, failed):
 
 def process_log_file_write(g_list_queue):
     #创建debug日志文件和终端日志文件，路径固定为软件所在目录下的log文件夹
-    dir = "./log/"
-    path_debug = dir +  "debug " + \
+    dir_log = "./log/"
+    dir_dtest = ""
+    path_debug = dir_log +  "debug " + \
         datetime.datetime.now().strftime('%Y-%m-%d %H%M%S') + ".log"
-    path_terminal = dir +  "terminal " + \
+    path_terminal = dir_log +  "terminal " + \
         datetime.datetime.now().strftime('%Y-%m-%d %H%M%S') + ".log"
-    if not os.access(dir, os.F_OK):
-        print("创建log目录(%s)" % dir)
-        os.mkdir(dir)
+    if not os.access(dir_log, os.F_OK):
+        print("创建log目录(%s)" % dir_log)
+        os.mkdir(dir_log)
     fd_debug = codecs.open(path_debug, 'w', 'utf-8')
     fd_terminal = codecs.open(path_terminal, 'w', 'utf-8')
     while True:
@@ -106,7 +116,12 @@ def process_log_file_write(g_list_queue):
             fd_terminal.flush()
 
 class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
-    def __init__(self):
+    def __init__(self, argv):
+        self.auto_test_mode = 1
+        if len(argv) > 1:
+            if argv[1] == "auto":
+                self.auto_test_mode = 1
+        print("init argv:", argv, ", auto test mode:", self.auto_test_mode)
         super(kl3_test_app, self).__init__()  #super调用父类的构造函数
         self.setupUi(self)
         #配置主界面标题栏
@@ -170,12 +185,15 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         g_list_queue.append(Queue(300))
         thread_log = Process(target=process_log_file_write, args=(g_list_queue,))
         thread_log.daemon = True
-        thread_log.start()
-        #标准输出重定向
-        self.stdout_old = sys.stdout
-        sys.stdout = self
-        #隐藏调试窗口
-        # self.widget_debug.setVisible(False)
+        #手动模式时标准输出重定向到界面，自动测试模式时输出到标准输出（jenkins）
+        if self.auto_test_mode:
+            #自动测试模式时隐藏调试窗口
+            self.widget_debug.setVisible(False)
+        else:
+            self.stdout_old = sys.stdout
+            sys.stdout = self
+            # 自动测试时不写log文件
+            thread_log.start()
         #调用初始化函数
         self.init()
 
@@ -204,6 +222,10 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         #dtest测试采用timer+状态机的方式（进程while1和sleep会导致界面卡死）
         self.timer = QTimer()
         self.timer.timeout.connect(self.test_fsm_handle)
+        if self.auto_test_mode:
+            # 模拟触发开始测试按钮
+            print("开始自动测试")
+            self.pbt_handle_test_act()
 
     def init_com_port(self):
         #当前串口列表初始化，使用列表获取，没有则退出程序，有则私有字典保存com口字符串
@@ -211,8 +233,8 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         list_com_temp = list(serial.tools.list_ports.comports())
         if len(list_com_temp) <= 0:
             print("未发现串口，程序退出")
-            QMessageBox.warning(self,'警告','未发现串口',QMessageBox.Yes)
-            exit()
+            self.msg_box_show(g_msg_warning, "未发现串口")
+            exit(1)
         self.cfg.combo_com_0.addItem('')
         self.cfg.combo_com_1.addItem('')
         self.cfg.combo_com_2.addItem('')
@@ -232,7 +254,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         if not os.access(path_file, os.F_OK | os.R_OK):
             msg = "文件不存在或不可读：\n" + path_file
             print(msg)
-            QMessageBox.warning(self, '警告', msg, QMessageBox.Yes)
+            self.msg_box_show(g_msg_warning, msg)
             return
         else:
             #清空界面和相关列表
@@ -460,7 +482,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         if fd_xml == None:
             msg = path + " 文件打开失败"
             print(msg)
-            QMessageBox.warning(self, "警告", msg, QMessageBox.Yes)
+            self.msg_box_show(g_msg_warning, msg)
             return
         self.xml_tree.writexml(fd_xml, indent='',
             addindent='    ', newl='\n', encoding='UTF-8')
@@ -526,8 +548,8 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
             or len(self.np_port_info[1]['com']) == 0
             or len(self.list_path[0]) == 0):
             print("配置无效，至少需要2个串口和一个路径")
-            QMessageBox.warning(self, '警告', '至少需要配置主模式的\n'
-                '2个串口和固件路径', QMessageBox.Yes)
+            self.msg_box_show(g_msg_warning, '至少需要配置主模式的\n'
+                '2个串口和固件路径')
             list_cfg_valid[0] = 0
         else:
             list_cfg_valid[0] = 1
@@ -540,8 +562,8 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 or len(self.np_port_info[3]['com']) == 0
                 or len(self.list_path[1]) == 0):
                 print("从模式配置无效，需要配置从模式2个串口和一个路径")
-                QMessageBox.warning(self, '警告', '需要配置从模式的\n'
-                    '2个串口和固件路径', QMessageBox.Yes)
+                self.msg_box_show(g_msg_warning, '需要配置从模式的\n'
+                    '2个串口和固件路径')
                 list_cfg_valid[1] = 0
             else:
                 list_cfg_valid[1] = 1
@@ -557,13 +579,13 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                     if self.np_port_info[i]['com'] == self.np_port_info[j]['com']\
                         and i != j:
                         print("串口冲突")
-                        QMessageBox.warning(self, "警告", "串口冲突", QMessageBox.Yes)
+                        self.msg_box_show(g_msg_warning, "串口冲突")
                         return
             #检查路径是否存在，防止手动输入错误路径
             if (os.path.exists(self.list_path[0]) == False
                 or os.path.exists(self.list_path[1]) != slave_take_effect):
                 print("文件夹路径不存在")
-                QMessageBox.warning(self, "警告", "文件夹不存在", QMessageBox.Yes)
+                self.msg_box_show(g_msg_warning, "文件夹不存在")
                 return
             self.ui_cfg.close()
 
@@ -592,9 +614,9 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         pbt_text = self.pbt_start_test.text()
         print("%s 按钮被按下" % pbt_text)
         if pbt_text == "开始测试":
-            if (self.test_start_file_check() < 0):
-                return
-            if self.test_start_port_check() < 0:
+            if (self.test_start_file_check() < 0) or (self.test_start_port_check() < 0):
+                if self.auto_test_mode:
+                    exit(1)
                 return
             #由于工期紧张，从模块的连接和下载由多线程同时工作更改为顺序执行，下述循环：
             #从模式连接->从模式下载->主模式连接->主模式下载->发送case组合->打印串口
@@ -639,13 +661,15 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 else:   #所有测试结束
                     print("所有测试执行完毕")
                     self.test_stop_handle()
+                    if self.auto_test_mode:
+                        exit(0)
                     return
             else:
                 self.fsm['state'] = g_fsm_download
                 self.fsm['dtest'] = dtest_n
                 print("下一个将要执行的dtest编号：%d" % dtest_n)
         elif self.fsm['state'] == g_fsm_download:
-            failed_flag, reason = 0, 0
+            failed_flag = 0
             failed_str = ["从模块连接", "从模块下载", "主模块连接", "主模块下载"]
             #这里部分操作为阻塞模式，因此要先关掉timer
             self.timer.stop()
@@ -665,17 +689,19 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 if failed_flag == 0 and \
                     self.test_start_xmodem_transf_1(self.np_port_info[2]['fd'], \
                     path_slave) < 0:
-                    failed_flag = 1
+                    failed_flag = 2
             if failed_flag == 0 and \
                 self.test_start_connect_module(self.np_port_info[0]['fd'], \
                 self.np_port_info[1]['fd']):
-                failed_flag = 1
+                failed_flag = 3
             if failed_flag == 0 and \
                 self.test_start_xmodem_transf_0(self.np_port_info[0]['fd'], path) < 0:
-                failed_flag = 1
+                failed_flag = 4
             if failed_flag:
-                print("%s执行失败，原因：%s 失败" % (name_file, failed_str[reason]))
+                print("%s执行失败，原因：%s 失败" % (name_file, failed_str[failed_flag - 1]))
                 self.fsm['state'] = g_fsm_free
+                self.test_save_dtest_result(name_file.replace(".bin", ""), "FAILED")
+                self.timer.start(100)  # start next test
             else:
                 #【TODO】：这里计划增加一个更改串口波特率的流程
                 #发送case组合
@@ -715,11 +741,18 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 # self.edit_terminal.moveCursor(QTextCursor.End)
                 # print("当前字符串颜色：%s，内容：%s" % (color.name(), string_temp))
             #发送消息到写文件的进程
-            g_list_queue[1].put_nowait(string)
+            if not self.auto_test_mode:
+                g_list_queue[1].put_nowait(string)
 
             #预定义的关键字处理
             if string.find(g_module_log_key_result) >= 0:
-                print("dtest执行完成")
+                name_dtest = self.list_dtest_info[self.fsm['dtest']][0][g_idx_name]
+                if string.find("fail") or string.find("FAIL"):
+                    result = "FAILED"
+                else:
+                    result = "SUCCEED"
+                print(name_dtest, " 执行完成，结果：", result)
+                self.test_save_dtest_result(name_dtest, result)
                 complete_flag = 1
             elif string.find(g_module_log_key_reboot) >= 0:
                 print("dtest需要重启")
@@ -734,8 +767,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         for i in range(1, len(self.list_dtest_info[dtest_index])):
             if self.list_dtest_info[dtest_index][i][g_idx_eb_c] == "true":
                 group |= (1 << (i - 1))
-        cmd = ("[CONFIG] - " + self.list_dtest_info[dtest_index][0][g_idx_name] \
-            + " : " + str("{:08X}".format(group))).encode(encoding='utf-8')
+        cmd = ("[CONFIG] - " + str("{:08X}".format(group))).encode(encoding='utf-8')
         print("%s case组合：%d，发送到dtest的指令：%s" % \
             (self.list_dtest_info[dtest_index][0][g_idx_name], group, cmd))
         port.write(cmd)
@@ -751,7 +783,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         except exception as e:
             msg = "文件：" + path_bin + " 打开失败"
             print(msg)
-            QMessageBox.warning(self, "警告", msg, QMessageBox.Yes)
+            self.msg_box_show(g_msg_warning, msg)
             return -1
         send_flag = x_modem.send(fd_bin, callback=xmodem_transf_0_callback)
         time_end = datetime.datetime.now()
@@ -770,7 +802,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         except exception as e:
             msg = "文件：" + path_bin + " 打开失败"
             print(msg)
-            QMessageBox.warning(self, "警告", msg, QMessageBox.Yes)
+            self.msg_box_show(g_msg_warning, msg)
             return -1
         send_flag = x_modem.send(fd_bin, callback=xmodem_transf_1_callback)
         time_end = datetime.datetime.now()
@@ -822,7 +854,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                         or self.np_port_info[i + 1]['com'] == '':
                         msg = "使能了从模式，但是未配置从模式串口"
                         print(msg)
-                        QMessageBox.warning(self, "警告", msg, QMessageBox.Yes)
+                        self.msg_box_show(g_msg_warning, msg)
                         return -1
                 else:
                     continue
@@ -842,7 +874,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
             except Exception as e:
                 msg = port + "串口打开失败，原因：" + str(e)
                 print(msg)
-                QMessageBox.warning(self, "警告", msg, QMessageBox.Yes)
+                self.msg_box_show(g_msg_warning, msg)
                 return -1
         return 0
 
@@ -871,7 +903,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                     if len(self.list_path[1]) == 0:
                         msg = "使能了从模式，但是未配置从固件文件夹路径"
                         print(msg)
-                        QMessageBox.warning(self, "警告", msg, QMessageBox.Yes)
+                        self.msg_box_show(g_msg_warning, msg)
                         return -1
                     name_file_slave = name_file.replace('.', '_slave.')
                     path_slave = self.list_path[1] + '\\' + name_file_slave
@@ -890,7 +922,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         if len(file_lack) > 0:
             msg = "缺少以下固件：" + str(file_lack)
             print(msg)
-            QMessageBox.warning(self, '警告', msg, QMessageBox.Yes)
+            self.msg_box_show(g_msg_warning, msg)
             return -1
         return 0
 
@@ -909,6 +941,15 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.np_port_info[i]['fd'].close()
         self.pbt_start_test.setText("开始测试")
         return
+
+    def test_save_dtest_result(self, dtest, result):
+        path_result_file = self.list_path[0] + "\\" + "result.log"
+        try:
+            fd_result = open(path_result_file, "a")
+        except exception as e:
+            print(path_result_file, "文件打开失败, 原因：", e)
+        fd_result.write(dtest + " --> " + result + "\n")
+        fd_result.close()
 
     def mouse_handle_widget_right_clicked(self, pos, src):
         print("%s右键单击被触发, 显示右键菜单" % ("dtest" if src == 0 else "case"))
@@ -1025,13 +1066,25 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         if str == ' ' or str == '\n':
             return
         self.edit_debug.append(str)
-        g_list_queue[0].put_nowait(str)
+        if not self.auto_test_mode:
+            g_list_queue[0].put_nowait(str)
+
+    def msg_box_show(self, type, msg):
+        # 自动化测试时不弹窗
+        if self.auto_test_mode:
+            return
+        if type == g_msg_warning:
+            QMessageBox.warning(self, '警告', msg, QMessageBox.Yes)
+        else:
+            return
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
-    my_app = kl3_test_app()
+    my_app = kl3_test_app(argv=sys.argv)
     my_app.show()
-    sys.exit(app.exec_())
+    exit_flag = app.exec_()
+    print(sys.argv[0], "exit flag: ", exit_flag)
+    sys.exit(exit_flag)
 
 if __name__ == '__main__':
     freeze_support()    #解决打包exe后出现的循环启动
