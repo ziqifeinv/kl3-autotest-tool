@@ -7,14 +7,13 @@ import shutil
 from paramiko import channel
 
 host_ip = "10.0.1.111"
-host_name = "jenkins"
+host_name = "daxiong"
 host_passwd = "5555"
 # host_cmd = "ls -all; export"
 host_cmd = """
     export PATH=$PATH:/opt/riscv_env/bin/;
-    cd kl3_dtest_test/kunlun/iotelic/kunlun/Mainline/build/;
-    git checkout master;
-    git pull
+    cd share/kunlun-private/iotelic/kunlun/Mainline/build/;
+    git checkout master_dtest;
     ./build_dtest_kl3.sh
 """
 # 目前仅拷贝xxx.bin文件，

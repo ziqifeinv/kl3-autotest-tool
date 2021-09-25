@@ -36,8 +36,8 @@
         <parity>NONE</parity>
         <stop>1.0</stop>
     </port>
-    <dir id="0">D:\workspace\vsc\python\ssh\dtest_file</dir>
-    <dir id="1"/>
+    <dir id="0">D:\workspace\vsc\python\kl3-test-tool\dtest_file</dir>
+    <dir id="1"></dir>
     <dtest id="000">
         <name>unit_test_smc</name>
         <note>用于测试smc（psram）的基础功能</note>
@@ -62,11 +62,41 @@
     <dtest id="001">
         <name>unit_test_sfc</name>
         <note>用于测试sfc基础功能</note>
-        <enable>false</enable>
+        <enable>true</enable>
         <slave_mode>false</slave_mode>
         <case id="00">
-            <name>case_1</name>
-            <note>默认测试</note>
+            <name>get_device_id</name>
+            <note>获取flash芯片厂商ID和设备ID测试</note>
+            <enable>true</enable>
+        </case>
+        <case id="01">
+            <name>status_reg_read</name>
+            <note>读取flash芯片状态寄存器测试</note>
+            <enable>true</enable>
+        </case>
+        <case id="02">
+            <name>erase</name>
+            <note>擦除flash芯片测试</note>
+            <enable>true</enable>
+        </case>
+        <case id="03">
+            <name>write</name>
+            <note>写flash数据测试</note>
+            <enable>true</enable>
+        </case>
+        <case id="04">
+            <name>read</name>
+            <note>读flash数据测试</note>
+            <enable>true</enable>
+        </case>
+        <case id="05">
+            <name>full_rw</name>
+            <note>flash芯片全片读写数据测试</note>
+            <enable>true</enable>
+        </case>
+        <case id="06">
+            <name>puya_factory</name>
+            <note>普冉flash工厂模式测试</note>
             <enable>true</enable>
         </case>
     </dtest>

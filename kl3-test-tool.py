@@ -87,37 +87,68 @@ def xmodem_transf_1_callback(total, succeed, failed):
         print(".", end='')
 
 def process_log_file_write(g_list_queue):
-    #创建debug日志文件和终端日志文件，路径固定为软件所在目录下的log文件夹
-    dir_log = "./log/"
-    dir_dtest = ""
-    path_debug = dir_log +  "debug " + \
+    msg_process = ""    # python子进程不能使用print(stdout)，所以打印到文件
+    dir_script = os.getcwd()    # 当前脚本所在目录
+    # 创建debug日志文件和终端日志文件，路径固定为软件所在目录下的log文件夹
+    dir_log = os.path.join(dir_script, "log")
+    path_debug = dir_log +  "\\debug " + \
         datetime.datetime.now().strftime('%Y-%m-%d %H%M%S') + ".log"
-    path_terminal = dir_log +  "terminal " + \
+    path_terminal = dir_log +  "\\terminal " + \
         datetime.datetime.now().strftime('%Y-%m-%d %H%M%S') + ".log"
+
+    # 每个dtest打印单独存为一个log文件，位于history目录下时间戳最新的子目录下
+    # os.listdir是名称从小到大返回列表
+    dir_dtest_history = os.path.join(dir_script, "history")
+    dir_dtest_list = os.listdir(dir_dtest_history)
+    dir_dtest = dir_dtest_list[len(dir_dtest_list) - 1]
+
     if not os.access(dir_log, os.F_OK):
-        print("创建log目录(%s)" % dir_log)
+        msg_process = "创建log目录: " + dir_log + "\r\n"
         os.mkdir(dir_log)
     fd_debug = codecs.open(path_debug, 'w', 'utf-8')
     fd_terminal = codecs.open(path_terminal, 'w', 'utf-8')
+    fd_dtest = None
+
     while True:
         if g_list_queue[0].full():
-            print("log队列已满！！！")
-        if not g_list_queue[0].empty():
-            msg = g_list_queue[0].get()
-            fd_debug.write(msg)
-            fd_debug.write("\r\n")
-            fd_debug.flush()
+            msg_process += "调试log队列已满！！！\r\n"
 
         if not g_list_queue[1].empty():
             if g_list_queue[1].full():
-                print("终端队列已满！！！")
+                msg_process += "终端队列已满！！！\r\n"
             msg = g_list_queue[1].get()
+            msg = str(msg).replace("\r\n", "")
+            # 写入单独的log文件
+            if not g_list_queue[2].empty():
+                if fd_dtest:
+                    fd_dtest.close()
+                name_dtest = g_list_queue[2].get()
+                name_dtest = str(name_dtest).replace(".bin", "")
+                path_dtest_log = os.path.join(dir_dtest_history, dir_dtest,
+                    name_dtest, name_dtest + ".log")
+                fd_dtest = codecs.open(path_dtest_log, 'w', 'utf-8')
+                msg_process += "创建" + name_dtest + "对应的log文件，路径:" + \
+                    path_dtest_log + "\r\n"
+            if fd_dtest:
+                # msg_process += "写入单独的log文件:" + msg + "\r\n"
+                fd_dtest.write(msg)
+                fd_dtest.flush()
+            # 写入总的log文件
             fd_terminal.write(msg)
             fd_terminal.flush()
+        # 写入调试日志
+        if not g_list_queue[0].empty():
+            msg = g_list_queue[0].get()
+            fd_debug.write(msg + "\r\n")
+            fd_debug.flush()
+        if len(msg_process):
+            fd_debug.write(msg_process + "\r\n")
+            fd_debug.flush()
+            msg_process = ""
 
 class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, argv):
-        self.auto_test_mode = 1
+        self.auto_test_mode = 0
         if len(argv) > 1:
             if argv[1] == "auto":
                 self.auto_test_mode = 1
@@ -181,10 +212,12 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         self.cfg.pbt_sel_file_1.clicked.connect(
             lambda: self.pbt_handle_cfg_file_select(1))
         #IO操作比较费时，会导致界面刷新缓慢，改为使用队列+子进程方式实现写文件
-        g_list_queue.append(Queue(300))
-        g_list_queue.append(Queue(300))
+        g_list_queue.append(Queue(300)) # 软件调试打印队列
+        g_list_queue.append(Queue(300)) # dtest日志打印队列
+        g_list_queue.append(Queue(5))   # 当前dtest名称队列
         thread_log = Process(target=process_log_file_write, args=(g_list_queue,))
         thread_log.daemon = True
+        thread_log.start()
         #手动模式时标准输出重定向到界面，自动测试模式时输出到标准输出（jenkins）
         if self.auto_test_mode:
             #自动测试模式时隐藏调试窗口
@@ -192,8 +225,6 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         else:
             self.stdout_old = sys.stdout
             sys.stdout = self
-            # 自动测试时不写log文件
-            thread_log.start()
         #调用初始化函数
         self.init()
 
@@ -413,6 +444,15 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         debug_interface = root.getElementsByTagName("debug_interface")
         eb = "true" if self.widget_debug.isVisible() else "false"
         debug_interface[0].firstChild.data = eb
+
+        dirs = root.getElementsByTagName("dir")
+        for i in range(len(self.list_path)):
+            if dirs[i].hasChildNodes():
+                dirs[i].firstChild.data = self.list_path[i]
+            else:
+                if len(self.list_path[i]):
+                   dir_text =  self.xml_tree.createTextNode(self.list_path[i])
+                   dirs[i].appendChild(dir_text)
 
         dtests = root.getElementsByTagName("dtest")
         for i in range(0, len(self.list_dtest_info)):
@@ -679,6 +719,8 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 name_file += ".bin"
             path = self.list_path[0] + "\\" + name_file
             print("开始测试第%d个dtest(%s)，路径：%s" % (dtest_index, name_file, path))
+            if self.auto_test_mode:
+                g_list_queue[2].put_nowait(name_file)
             if self.list_dtest_info[dtest_index][0][g_idx_slave] == "true":
                 name_file_slave = name_file.replace('.', '_slave.')
                 path_slave = self.list_path[1] + '\\' + name_file_slave
@@ -703,22 +745,36 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.test_save_dtest_result(name_file.replace(".bin", ""), "FAILED")
                 self.timer.start(100)  # start next test
             else:
-                #【TODO】：这里计划增加一个更改串口波特率的流程
-                #发送case组合
-                time.sleep(0.3)
-                self.test_start_send_case_group(self.fsm['dtest'], self.np_port_info[0]['fd'])
                 self.fsm['state'] = g_fsm_running
-                self.timer.start(10)   #串口打印，timer间隔短一点
+                self.fsm_timestamp_download_complete = datetime.datetime.now()
+                self.fsm_dtest_running_flag = 0
+                self.timer.start(200)
         elif self.fsm['state'] == g_fsm_running:
-            #串口接收并打印
             complete_flag = 0
+            #【TODO】：这里计划增加一个更改串口波特率的流程
+            # 10s没有收到数据，则认为dtest执行失败了
+            name_dtest = self.list_dtest_info[self.fsm['dtest']][0][g_idx_name]
+            if not self.fsm_dtest_running_flag:
+                if ((datetime.datetime.now() - self.fsm_timestamp_download_complete).seconds > 10):
+                    print("未收到dtest发送的START字段，也许dtest执行失败了")
+                    self.test_save_dtest_result(name_dtest, "FAILED")
+                    self.fsm['state'] = g_fsm_free
+                    self.timer.start(1000)
+            #串口接收并打印
             # read_bytes = b"this is test"
             # read_bytes = self.np_port_info[0]['fd'].readall()
             ready_num = self.np_port_info[0]['fd'].inWaiting()
             if ready_num == 0:
+                self.timer.start(100)
                 return
+            if not self.fsm_dtest_running_flag:
+                if ready_num < len(g_module_log_key_start):
+                    print("串口数据长度不够，收到的数据长度:", ready_num)
+                    self.timer.start(100)
+                    return
             read_bytes = self.np_port_info[0]['fd'].read(ready_num)
             string = read_bytes.decode('utf-8')    #这里已知串口数据均为字符
+
             #字符串规则匹配，如需处理原始串口数据，则额外提供函数(放到规则匹配后面)
             #串口收到的字符串可能发送粘连，因此以换行符为间隔进行匹配
             list_str = string.splitlines()
@@ -741,13 +797,11 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 # self.edit_terminal.moveCursor(QTextCursor.End)
                 # print("当前字符串颜色：%s，内容：%s" % (color.name(), string_temp))
             #发送消息到写文件的进程
-            if not self.auto_test_mode:
-                g_list_queue[1].put_nowait(string)
+            g_list_queue[1].put_nowait(string)
 
             #预定义的关键字处理
             if string.find(g_module_log_key_result) >= 0:
-                name_dtest = self.list_dtest_info[self.fsm['dtest']][0][g_idx_name]
-                if string.find("fail") or string.find("FAIL"):
+                if string.find("fail") > 0 or string.find("FAIL") > 0:
                     result = "FAILED"
                 else:
                     result = "SUCCEED"
@@ -758,16 +812,24 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 print("dtest需要重启")
                 self.fsm['reboot'] = 1
                 complete_flag = 1
+            elif string.find(g_module_log_key_start) >= 0 and \
+                not self.fsm_dtest_running_flag:
+                print("received start keyword, send dtest case group")
+                self.fsm_dtest_running_flag = 1
+                #发送case组合
+                time.sleep(0.3)
+                self.test_start_send_case_group(self.fsm['dtest'], self.np_port_info[0]['fd'])
             if complete_flag:
                 self.timer.start(1000)
                 self.fsm['state'] = g_fsm_free
+            self.timer.start(100)
 
     def test_start_send_case_group(self, dtest_index, port):
         group = 0
         for i in range(1, len(self.list_dtest_info[dtest_index])):
             if self.list_dtest_info[dtest_index][i][g_idx_eb_c] == "true":
                 group |= (1 << (i - 1))
-        cmd = ("[CONFIG] - " + str("{:08X}".format(group))).encode(encoding='utf-8')
+        cmd = ("[CONFIG] - 0x" + str("{:08X}".format(group))).encode(encoding='utf-8')
         print("%s case组合：%d，发送到dtest的指令：%s" % \
             (self.list_dtest_info[dtest_index][0][g_idx_name], group, cmd))
         port.write(cmd)
@@ -1066,8 +1128,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         if str == ' ' or str == '\n':
             return
         self.edit_debug.append(str)
-        if not self.auto_test_mode:
-            g_list_queue[0].put_nowait(str)
+        g_list_queue[0].put_nowait(str)
 
     def msg_box_show(self, type, msg):
         # 自动化测试时不弹窗

@@ -1,7 +1,7 @@
 @echo off
 
 echo "[BAT] 连接虚拟机，获取dtest固件"
-python -u "d:\workspace\vsc\python\ssh\ssh_linux.py"
+python -u "d:\workspace\vsc\python\kl3-test-tool\ssh_linux.py"
 IF %ERRORLEVEL% NEQ 0 (
     echo "[BAT] dtest固件获取失败"
     EXIT /B 1
