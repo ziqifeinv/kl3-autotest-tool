@@ -9,12 +9,17 @@ from paramiko import channel
 host_ip = "10.0.1.111"
 host_name = "daxiong"
 host_passwd = "5555"
-# host_cmd = "ls -all; export"
 host_cmd = """
     export PATH=$PATH:/opt/riscv_env/bin/;
     cd share/kunlun-private/iotelic/kunlun/Mainline/build/;
     git checkout master_dtest;
     ./build_dtest_kl3.sh
+"""
+# 这里不适用“git rev-parse HEAD”，获取到的是本地合并之后的commit id，与库上的不符合，
+# 需要抽取merge id，这里考虑是内部邮件，直接打印近两天的提交
+host_cmd_commit_id = """
+    cd share/kunlun-private/iotelic/kunlun/Mainline/build/;
+    git log --since=2.days
 """
 # 目前仅拷贝xxx.bin文件，
 # 约定拷贝的文件存放于脚本所在目录下的dtest_file目录下，以单独的bin文件存在
@@ -94,6 +99,34 @@ for dtest in list_dtest_kl3:
         print("文件拷贝失败", e)
         sys.exit(6)
     shutil.copy(path_local, dir_dtest)
+
+# -------------------------------远程执行命令,获取commit id----------------------
+print("开始执行指令：", host_cmd_commit_id)
+info_commit = ""
+try:
+    build_fail = 0
+    # 执行命令,结果放到stdout中，如果有错误将放到stderr中
+    stdin, stdout, stderr = ssh.exec_command(host_cmd_commit_id, get_pty=False)
+    for line in iter(stdout.readline,""):
+        info_commit += line
+    print("获取到commit id：", info_commit)
+except paramiko.SSHException as e_ssh:
+    print(e_ssh)
+    print("命令[%s]执行失败" % (host_cmd_commit_id))
+except Exception as e:
+    print(e)
+    print("命令[%s]执行异常" % (host_cmd_commit_id))
+if build_fail:
+    print("获取commit id失败")
+print("获取commit id成功")
+# 写入文件，用于附加到测试结果邮件中
+path_commit_id = os.path.join(os.getcwd(), "dtest_file", "commit_info.log")
+try:
+    fd_commit = open(path_commit_id, "w")
+except Exception as e:
+    print("文件 %s 打开失败，原因：" % (path_commit_id), e)
+fd_commit.write(info_commit)
+fd_commit.close()
 
 # -------------------------------关闭连接----------------------------------------
 # 关闭连接

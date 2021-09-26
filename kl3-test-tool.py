@@ -241,6 +241,8 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
             (0, "", 115200, 8, 0, 0), (0, "", 115200, 8, 0, 0)], dtype=cfg_type)
         #固件路径初始化
         self.list_path = ['', '']
+        # result文件（保存测试结果的文件）路径初始化
+        self.path_result_file = os.path.join(os.getcwd(), "dtest_file", "result.log")
         #初始化一个保存xml配置信息的列表
         #格式为[[[dtest1 info1, dtest1 info2], [case info1], [case info2]], [dtest2]]
         self.list_dtest_info = []
@@ -671,6 +673,15 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
             self.pbt_start_test.setText("停止测试")
             self.pbt_cfg.setEnabled(False)
             self.edit_cycle_index.setReadOnly(True)
+            # 删除result文件
+            if os.path.exists(self.path_result_file):
+                os.remove(self.path_result_file)
+            # 在result文件中写入当前测试固件所在文件夹
+            dir_dtest_history = os.path.join(os.getcwd(), "history")
+            dir_dtest_list = os.listdir(dir_dtest_history)
+            dir_dtest = dir_dtest_list[len(dir_dtest_list) - 1]
+            self.test_save_dtest_result("当前测试固件所在目录",
+                "file://TESTER-IP-11/Users/jenkins/AppData/Local/Jenkins/.jenkins/workspace/kl3_dtest_test/scripts/history/" + dir_dtest)
         else:
             self.test_stop_handle()
 
@@ -817,7 +828,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
                 print("received start keyword, send dtest case group")
                 self.fsm_dtest_running_flag = 1
                 #发送case组合
-                time.sleep(0.3)
+                time.sleep(0.8)
                 self.test_start_send_case_group(self.fsm['dtest'], self.np_port_info[0]['fd'])
             if complete_flag:
                 self.timer.start(1000)
@@ -1005,7 +1016,7 @@ class kl3_test_app(QtWidgets.QMainWindow, Ui_MainWindow):
         return
 
     def test_save_dtest_result(self, dtest, result):
-        path_result_file = self.list_path[0] + "\\" + "result.log"
+        path_result_file = self.path_result_file
         try:
             fd_result = open(path_result_file, "a")
         except exception as e:
